@@ -5,13 +5,15 @@ const fs = require("fs");
 const dbPath = path.join(__dirname, "steel.db");
 console.log("📁 Database path:", dbPath);
 
-// Видаляємо стару БД для чистоти
-if (fs.existsSync(dbPath)) {
-    fs.unlinkSync(dbPath);
-    console.log("🗑️ Видалено стару базу даних");
-}
+// Перевіряємо чи існує БД
+const dbExists = fs.existsSync(dbPath);
 
+// Відкриваємо БД
 const db = new Database(dbPath);
+
+// Встановлюємо прагми
+db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = ON');
 
 // Створюємо таблиці
 db.exec(`
@@ -44,10 +46,53 @@ const defaultCoefficient = 2.3;
 const existingCoeff = db.prepare("SELECT value FROM settings WHERE key = 'coefficient'").get();
 if (!existingCoeff) {
     db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)").run("coefficient", defaultCoefficient.toString());
+    console.log("⚙️ Додано базовий коефіцієнт за замовчуванням");
+}
+
+// Функція для резервного копіювання
+function backupDatabase() {
+    try {
+        const backupPath = path.join(__dirname, 'backups');
+        if (!fs.existsSync(backupPath)) {
+            fs.mkdirSync(backupPath);
+        }
+
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const backupFile = path.join(backupPath, `steel-${timestamp}.db`);
+
+        // Закриваємо поточне з'єднання
+        db.close();
+
+        // Копіюємо файл
+        fs.copyFileSync(dbPath, backupFile);
+        console.log(`💾 Резервну копію збережено: ${backupFile}`);
+
+        // Відкриваємо знову
+        const newDb = new Database(dbPath);
+        newDb.pragma('journal_mode = WAL');
+        newDb.pragma('foreign_keys = ON');
+
+        return newDb;
+    } catch (error) {
+        console.error('❌ Помилка резервного копіювання:', error);
+        return db;
+    }
+}
+
+// Робимо резервну копію раз на день (якщо є дані)
+const receiptsCount = db.prepare("SELECT COUNT(*) as count FROM receipts").get();
+if (receiptsCount.count > 0) {
+    // Перевіряємо коли була остання резервна копія
+    const backupsDir = path.join(__dirname, 'backups');
+    if (fs.existsSync(backupsDir)) {
+        const backups = fs.readdirSync(backupsDir).filter(f => f.startsWith('steel-'));
+        if (backups.length === 0) {
+            // backupDatabase(); // Розкоментуйте якщо треба автоматичний бекап
+        }
+    }
 }
 
 console.log("✅ База даних ініціалізована");
-console.log("📊 Таблиці створено:",
-    db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(t => t.name));
+console.log(`📦 Всього чеків: ${receiptsCount.count}`);
 
 module.exports = db;

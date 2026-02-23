@@ -1,19 +1,34 @@
 const express = require("express");
 const cors = require("cors");
 const db = require("./db");
+const path = require("path");
 
 const app = express();
+
+// CORS налаштування для продакшну
+const allowedOrigins = [
+    'http://localhost:3000',
+    'http://localhost:5173', // для Vite
+    process.env.FRONTEND_URL,
+].filter(Boolean); // видаляє undefined
+
 app.use(cors({
-    origin: [
-        'http://localhost:3000',                    // локальний фронтенд
-        process.env.FRONTEND_URL,                    // змінна оточення
-        'https://your-frontend-url.onrender.com'     // ваш майбутній фронтенд
-    ].filter(Boolean)
+    origin: function (origin, callback) {
+        // Дозволяємо запити без origin (наприклад, з мобільних додатків)
+        if (!origin) return callback(null, true);
+
+        if (allowedOrigins.indexOf(origin) === -1) {
+            console.log('❌ CORS blocked for:', origin);
+            return callback(null, false);
+        }
+        return callback(null, true);
+    },
+    credentials: true
 }));
+
 app.use(express.json());
 
 // ========== ТЕСТОВИЙ ЕНДПОІНТ ==========
-// ДОДАЙТЕ ЦЕЙ КОД ВІДРАЗУ ПІСЛЯ app.use(express.json())
 app.get("/api/test", (req, res) => {
     try {
         // Перевіряємо підключення до бази даних
@@ -230,8 +245,9 @@ app.get("/api/reports/daily/:date", (req, res) => {
 
 // ========== ЗАПУСК ==========
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Сервер запущено на порті ${PORT}`);
-    console.log(`📡 Тестовий ендпоінт: http://localhost:${PORT}/api/test`);
-    console.log(`📊 API доступне: http://localhost:${PORT}/api`);
+    console.log(`📡 Тестовий ендпоінт: ${process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`}/api/test`);
+    console.log(`📊 API доступне: ${process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`}/api`);
+    console.log(`🌍 CORS дозволено для:`, allowedOrigins);
 });
