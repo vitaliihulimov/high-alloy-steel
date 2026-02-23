@@ -3,7 +3,13 @@ const cors = require("cors");
 const db = require("./db");
 
 const app = express();
-app.use(cors());
+app.use(cors({
+    origin: [
+        'http://localhost:3000',                    // локальний фронтенд
+        process.env.FRONTEND_URL,                    // змінна оточення
+        'https://your-frontend-url.onrender.com'     // ваш майбутній фронтенд
+    ].filter(Boolean)
+}));
 app.use(express.json());
 
 // ========== ТЕСТОВИЙ ЕНДПОІНТ ==========

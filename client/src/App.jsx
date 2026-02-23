@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
 
 // Генеруємо масив відсотків від 14 до 100
 const PERCENTAGES = Array.from({ length: 87 }, (_, i) => i + 14);
