@@ -107,19 +107,25 @@ function App() {
     }
   };
 
-  // Оновлення ваги для конкретного відсотка
   const updateWeight = (percentage, value) => {
+    // Замінюємо кому на крапку
+    const normalizedValue = value.replace(',', '.');
+
     // Дозволяємо тільки цифри та крапку
-    const cleanedValue = value.replace(/[^\d.]/g, '');
+    const cleanedValue = normalizedValue.replace(/[^\d.]/g, '');
+
     // Запобігаємо двом крапкам
     const parts = cleanedValue.split('.');
-    const finalValue = parts.length > 2 ? parts[0] + '.' + parts.slice(1).join('') : cleanedValue;
+    const finalValue = parts.length > 2
+      ? parts[0] + '.' + parts.slice(1).join('')
+      : cleanedValue;
 
     setWeights(prev => ({
       ...prev,
-      [percentage]: finalValue === '' ? '' : parseFloat(finalValue) || 0
+      [percentage]: finalValue === '' ? '' : finalValue
     }));
   };
+
 
   // Оновлення тимчасового коефіцієнта для конкретного відсотка
   const updateTempCoefficient = (percentage, value) => {
@@ -930,13 +936,21 @@ function App() {
                         value={weight}
                         onChange={(e) => updateWeight(percentage, e.target.value)}
                         onKeyDown={(e) => {
-                          // Дозволяємо тільки цифри, крапку, backspace, delete, tab, enter
-                          const allowedKeys = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.', 'Backspace', 'Delete', 'Tab', 'Enter', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
+                          // Дозволяємо тільки цифри, кому, крапку, backspace, delete, tab, enter
+                          const allowedKeys = [
+                            '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+                            '.', ',', 'Backspace', 'Delete', 'Tab', 'Enter',
+                            'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
+                            'Home', 'End'
+                          ];
+
                           if (!allowedKeys.includes(e.key) && !e.ctrlKey && !e.metaKey) {
                             e.preventDefault();
                           }
-                          // Запобігаємо двом крапкам
-                          if (e.key === '.' && e.target.value.includes('.')) {
+
+                          // Запобігаємо двом роздільникам
+                          if ((e.key === '.' || e.key === ',') &&
+                            (e.target.value.includes('.') || e.target.value.includes(','))) {
                             e.preventDefault();
                           }
                         }}
@@ -1287,11 +1301,11 @@ function App() {
                 }}>
                   <thead style={{ background: '#333' }}>
                     <tr>
-                      <th style={{ padding: '12px', textAlign: 'left' }}>% сталі</th>
-                      <th style={{ padding: '12px', textAlign: 'left' }}>Коефіцієнт</th>
-                      <th style={{ padding: '12px', textAlign: 'left' }}>Вага (кг)</th>
-                      <th style={{ padding: '12px', textAlign: 'left' }}>Розрахунок</th>
-                      <th style={{ padding: '12px', textAlign: 'left' }}>Сума (грн)</th>
+                      <th style={{ padding: '12px', textAlign: 'left', color: 'white' }}>% сталі</th>
+                      <th style={{ padding: '12px', textAlign: 'left', color: 'white' }}>Коефіцієнт</th>
+                      <th style={{ padding: '12px', textAlign: 'left', color: 'white' }}>Вага (кг)</th>
+                      <th style={{ padding: '12px', textAlign: 'left', color: 'white' }}>Розрахунок</th>
+                      <th style={{ padding: '12px', textAlign: 'left', color: 'white' }}>Сума (грн)</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1299,13 +1313,13 @@ function App() {
                       <tr key={index} style={{
                         borderTop: '1px solid #404040'
                       }}>
-                        <td style={{ padding: '12px', fontWeight: 'bold' }}>
+                        <td style={{ padding: '12px', fontWeight: 'bold', color: 'white' }}>
                           {item.percentage}%
                         </td>
                         <td style={{ padding: '12px', color: '#28a745' }}>
                           {item.coefficient}
                         </td>
-                        <td style={{ padding: '12px' }}>
+                        <td style={{ padding: '12px', color: 'white' }}>
                           {item.weight.toFixed(2)}
                         </td>
                         <td style={{ padding: '12px', color: '#aaa' }}>
