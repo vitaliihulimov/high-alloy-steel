@@ -138,7 +138,8 @@ function App() {
 
   // Отримати коефіцієнт для відсотка (тимчасовий або базовий)
   const getCoefficient = (percentage) => {
-    return tempCoefficients[percentage] || baseCoefficient;
+    const c = tempCoefficients[percentage];
+    return c !== undefined ? c : baseCoefficient;
   };
 
   // Розрахунок суми для конкретного відсотка

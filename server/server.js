@@ -164,8 +164,12 @@ app.post("/api/receipts", async (req, res) => {
         return res.status(400).json({ error: "Немає позицій" });
     }
 
-    const total_weight = items.reduce((sum, item) => sum + (Number(item.weight) || 0), 0);
-    const total_sum = items.reduce((sum, item) => sum + (Number(item.sum) || 0), 0);
+    const total_weight = items.reduce((s, i) => s + Number(i.weight), 0);
+    const computedItems = items.map(i => ({
+        ...i,
+        sum: Math.floor(i.percentage * i.weight * i.coefficient)
+    }));
+    const total_sum = computedItems.reduce((s, i) => s + i.sum, 0);
 
     try {
         const receiptRes = await pool.query(
