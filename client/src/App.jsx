@@ -664,6 +664,7 @@ function App() {
                 body { 
                     font-family: 'Courier New', monospace; 
                     font-size: 11px;
+                    font-weight: bold;
                     margin: 5px;
                     width: 76mm;
                 }
