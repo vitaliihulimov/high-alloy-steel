@@ -668,12 +668,13 @@ function App() {
                     width: 76mm;
                 }
                 .header { text-align: center; margin-bottom: 10px; }
+                .header div { font-size: 14px; }
                 .line { border-top: 1px dashed #000; margin: 5px 0; }
                 .item { margin: 3px 0; }
-                .total { font-weight: bold; margin-top: 10px; }
-                .footer { text-align: center; margin-top: 15px; }
+                .total { font-weight: bold; margin-top: 10px; font-size: 15px; }
+                .footer { text-align: center; margin-top: 15px; font-size: 14px; }
                 table { width: 100%; border-collapse: collapse; }
-                th, td { padding: 2px; text-align: right; }
+                th, td { padding: 2px; text-align: right; font-size: 14px; }
                 td:first-child { text-align: left; }
             </style>
         </head>
