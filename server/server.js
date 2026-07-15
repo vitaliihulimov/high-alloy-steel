@@ -34,6 +34,25 @@ const pool = new Pool({
 
 console.log("🐘 Підключення до PostgreSQL...");
 
+// Часовий пояс для звітів "за день"
+const REPORT_TIMEZONE = 'Europe/Kyiv';
+
+// Postgres повертає NUMERIC як рядки через драйвер pg — приводимо до чисел,
+// щоб фронтенд міг безпечно викликати .toFixed()/.toLocaleString()
+function normalizeReceipt(receipt) {
+    return {
+        ...receipt,
+        total_weight: Number(receipt.total_weight),
+        total_sum: Number(receipt.total_sum),
+        items: (receipt.items || []).map(item => ({
+            ...item,
+            weight: Number(item.weight),
+            coefficient: Number(item.coefficient),
+            sum: Number(item.sum)
+        }))
+    };
+}
+
 // ====== ІНІЦІАЛІЗАЦІЯ ТАБЛИЦЬ ======
 const initDB = async () => {
     const client = await pool.connect();
@@ -103,15 +122,16 @@ app.get("/api/settings/coefficient", async (req, res) => {
 
 app.put("/api/settings/coefficient", async (req, res) => {
     const { coefficient } = req.body;
-    if (!coefficient || coefficient <= 0) {
+    const coeffNum = Number(coefficient);
+    if (!Number.isFinite(coeffNum) || coeffNum <= 0) {
         return res.status(400).json({ error: "Коефіцієнт має бути більше 0" });
     }
     try {
         await pool.query(
             "INSERT INTO settings (key, value) VALUES ('coefficient', $1) ON CONFLICT (key) DO UPDATE SET value = $1",
-            [coefficient.toString()]
+            [coeffNum.toString()]
         );
-        res.json({ success: true, coefficient });
+        res.json({ success: true, coefficient: coeffNum });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -127,7 +147,7 @@ app.get("/api/receipts", async (req, res) => {
                 "SELECT * FROM receipt_items WHERE receipt_id = $1 ORDER BY percentage ASC",
                 [receipt.id]
             );
-            result.push({ ...receipt, items: items.rows });
+            result.push(normalizeReceipt({ ...receipt, items: items.rows }));
         }
         res.json(result);
     } catch (err) {
@@ -140,8 +160,8 @@ app.get("/api/receipts/daily/:date", async (req, res) => {
     const { date } = req.params;
     try {
         const receipts = await pool.query(
-            "SELECT * FROM receipts WHERE created_at::date = $1::date ORDER BY created_at ASC",
-            [date]
+            "SELECT * FROM receipts WHERE (created_at AT TIME ZONE $2)::date = $1::date ORDER BY created_at ASC",
+            [date, REPORT_TIMEZONE]
         );
         const result = [];
         for (const receipt of receipts.rows) {
@@ -149,7 +169,7 @@ app.get("/api/receipts/daily/:date", async (req, res) => {
                 "SELECT * FROM receipt_items WHERE receipt_id = $1 ORDER BY percentage ASC",
                 [receipt.id]
             );
-            result.push({ ...receipt, items: items.rows });
+            result.push(normalizeReceipt({ ...receipt, items: items.rows }));
         }
         res.json(result);
     } catch (err) {
@@ -158,37 +178,78 @@ app.get("/api/receipts/daily/:date", async (req, res) => {
     }
 });
 
+// Валідація позицій чека
+function validateItems(items) {
+    if (!Array.isArray(items) || items.length === 0) {
+        return "Немає позицій";
+    }
+    for (const item of items) {
+        const percentage = Number(item.percentage);
+        const weight = Number(item.weight);
+        const coefficient = Number(item.coefficient);
+
+        if (!Number.isFinite(percentage) || percentage < 14 || percentage > 100) {
+            return `Некоректний відсоток: ${item.percentage}`;
+        }
+        if (!Number.isFinite(weight) || weight <= 0) {
+            return `Некоректна вага: ${item.weight}`;
+        }
+        if (!Number.isFinite(coefficient) || coefficient <= 0) {
+            return `Некоректний коефіцієнт: ${item.coefficient}`;
+        }
+    }
+    return null;
+}
+
 app.post("/api/receipts", async (req, res) => {
     const { receipt_number, items } = req.body;
-    if (!items || items.length === 0) {
-        return res.status(400).json({ error: "Немає позицій" });
+
+    const validationError = validateItems(items);
+    if (validationError) {
+        return res.status(400).json({ error: validationError });
     }
 
-    const total_weight = items.reduce((s, i) => s + Number(i.weight), 0);
-    const computedItems = items.map(i => ({
-        ...i,
-        sum: Math.floor(i.percentage * i.weight * i.coefficient)
-    }));
+    // Сума ЗАВЖДИ рахується на сервері, клієнтське значення ігнорується
+    const computedItems = items.map(i => {
+        const percentage = Number(i.percentage);
+        const weight = Number(i.weight);
+        const coefficient = Number(i.coefficient);
+        return {
+            percentage,
+            weight,
+            coefficient,
+            sum: Math.floor(percentage * weight * coefficient)
+        };
+    });
+
+    const total_weight = computedItems.reduce((s, i) => s + i.weight, 0);
     const total_sum = computedItems.reduce((s, i) => s + i.sum, 0);
 
+    const client = await pool.connect();
     try {
-        const receiptRes = await pool.query(
+        await client.query('BEGIN');
+
+        const receiptRes = await client.query(
             "INSERT INTO receipts (receipt_number, total_weight, total_sum) VALUES ($1, $2, $3) RETURNING id",
             [receipt_number || null, total_weight, total_sum]
         );
         const receiptId = receiptRes.rows[0].id;
 
-        for (const item of items) {
-            await pool.query(
+        for (const item of computedItems) {
+            await client.query(
                 "INSERT INTO receipt_items (receipt_id, percentage, weight, coefficient, sum) VALUES ($1, $2, $3, $4, $5)",
                 [receiptId, item.percentage, item.weight, item.coefficient, item.sum]
             );
         }
 
+        await client.query('COMMIT');
         res.json({ success: true, receiptId, message: "Чек успішно збережено" });
     } catch (err) {
+        await client.query('ROLLBACK');
         console.error('❌ Помилка збереження чека:', err);
         res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
     }
 });
 
@@ -211,8 +272,8 @@ app.get("/api/reports/daily/:date", async (req, res) => {
     const { date } = req.params;
     try {
         const receipts = await pool.query(
-            "SELECT * FROM receipts WHERE created_at::date = $1::date ORDER BY created_at ASC",
-            [date]
+            "SELECT * FROM receipts WHERE (created_at AT TIME ZONE $2)::date = $1::date ORDER BY created_at ASC",
+            [date, REPORT_TIMEZONE]
         );
         const result = [];
         for (const receipt of receipts.rows) {
@@ -220,11 +281,11 @@ app.get("/api/reports/daily/:date", async (req, res) => {
                 "SELECT * FROM receipt_items WHERE receipt_id = $1 ORDER BY percentage ASC",
                 [receipt.id]
             );
-            result.push({ ...receipt, items: items.rows });
+            result.push(normalizeReceipt({ ...receipt, items: items.rows }));
         }
 
-        const totalWeight = result.reduce((sum, r) => sum + Number(r.total_weight || 0), 0);
-        const totalSum = result.reduce((sum, r) => sum + Number(r.total_sum || 0), 0);
+        const totalWeight = result.reduce((sum, r) => sum + r.total_weight, 0);
+        const totalSum = result.reduce((sum, r) => sum + r.total_sum, 0);
 
         res.json({
             date,

@@ -5,6 +5,17 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 // Генеруємо масив відсотків від 14 до 100
 const PERCENTAGES = Array.from({ length: 87 }, (_, i) => i + 14);
 
+// Екранування HTML для безпечної вставки користувацьких даних у print-вікна
+const escapeHtml = (str) => {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+};
+
 function App() {
   const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -29,6 +40,9 @@ function App() {
   const [showAdmin, setShowAdmin] = useState(false);
   const [tempBaseCoefficient, setTempBaseCoefficient] = useState(baseCoefficient);
 
+  // Стан для збереження чека (запобігання подвійному кліку)
+  const [saving, setSaving] = useState(false);
+
   // Завантаження початкових даних
   useEffect(() => {
     loadInitialData();
@@ -40,13 +54,10 @@ function App() {
     setServerStatus(null);
 
     try {
-      const startTime = Date.now();
       const res = await fetch(`${API_URL}/test`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' }
       });
-      const endTime = Date.now();
-      const responseTime = endTime - startTime;
 
       if (res.ok) {
         setServerStatus({
@@ -166,6 +177,8 @@ function App() {
 
   // Зберегти чек
   const saveReceipt = async () => {
+    if (saving) return; // запобігання подвійному кліку
+
     // Перевіряємо чи є хоч одна вага
     const hasAnyWeight = Object.values(weights).some(w => parseFloat(w) > 0);
 
@@ -189,6 +202,7 @@ function App() {
       items: items
     };
 
+    setSaving(true);
     try {
       const res = await fetch(`${API_URL}/receipts`, {
         method: 'POST',
@@ -211,6 +225,8 @@ function App() {
     } catch (error) {
       console.error('Помилка збереження:', error);
       alert('❌ Помилка збереження');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -232,9 +248,13 @@ function App() {
         if (dailyReport) {
           generateDailyReport();
         }
+      } else {
+        const error = await res.json().catch(() => ({}));
+        alert(`❌ Помилка видалення: ${error.error || res.status}`);
       }
     } catch (error) {
       console.error('Помилка видалення:', error);
+      alert('❌ Не вдалося видалити чек');
     }
   };
 
@@ -269,8 +289,8 @@ function App() {
       return;
     }
 
-    const reportDate = new Date(reportData.date);
-    const reportDateStr = reportDate.toLocaleDateString('uk-UA', {
+    const reportDateObj = new Date(reportData.date);
+    const reportDateStr = reportDateObj.toLocaleDateString('uk-UA', {
       weekday: 'long',
       year: 'numeric',
       month: 'long',
@@ -294,8 +314,8 @@ function App() {
           };
         }
 
-        stats[key].totalWeight += item.weight;
-        stats[key].totalSum += item.sum;
+        stats[key].totalWeight += Number(item.weight);
+        stats[key].totalSum += Number(item.sum);
         stats[key].transactions.push({
           weight: item.weight,
           sum: item.sum
@@ -316,7 +336,7 @@ function App() {
     <html>
     <head>
         <meta charset="UTF-8">
-        <title>Звіт за ${reportDateStr}</title>
+        <title>Звіт за ${escapeHtml(reportDateStr)}</title>
         <style>
             @page {
                 size: A4;
@@ -493,15 +513,15 @@ function App() {
         
         <div class="header">
             <h1>ЗВІТ ЗА ДЕНЬ</h1>
-            <h2>${reportDateStr}</h2>
+            <h2>${escapeHtml(reportDateStr)}</h2>
         </div>
         
         <div class="summary">
             <div class="summary-grid">
                 <div class="summary-item">
                     <strong>Дата звіту:</strong>
-                    <div>${new Date().toLocaleDateString('uk-UA')}</div>
-                    <div>${new Date().toLocaleTimeString('uk-UA')}</div>
+                    <div>${escapeHtml(new Date().toLocaleDateString('uk-UA'))}</div>
+                    <div>${escapeHtml(new Date().toLocaleTimeString('uk-UA'))}</div>
                 </div>
                 <div class="summary-item">
                     <strong>Кількість чеків:</strong>
@@ -509,11 +529,11 @@ function App() {
                 </div>
                 <div class="summary-item">
                     <strong>Загальна вага:</strong>
-                    <div class="summary-value">${reportData.totalWeight.toFixed(2)} кг</div>
+                    <div class="summary-value">${Number(reportData.totalWeight).toFixed(2)} кг</div>
                 </div>
                 <div class="summary-item">
                     <strong>Загальна сума:</strong>
-                    <div class="summary-value">${reportData.totalSum.toLocaleString('uk-UA')} грн</div>
+                    <div class="summary-value">${Number(reportData.totalSum).toLocaleString('uk-UA')} грн</div>
                 </div>
             </div>
         </div>
@@ -603,9 +623,13 @@ function App() {
         setBaseCoefficient(tempBaseCoefficient);
         setShowAdmin(false);
         alert('✅ Базовий коефіцієнт оновлено');
+      } else {
+        const error = await res.json().catch(() => ({}));
+        alert(`❌ Помилка: ${error.error || res.status}`);
       }
     } catch (error) {
       console.error('Помилка збереження коефіцієнта:', error);
+      alert('❌ Не вдалося зберегти коефіцієнт');
     }
   };
 
@@ -622,6 +646,10 @@ function App() {
   // Друк чеку
   const printReceipt = (receipt) => {
     const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert("Дозвольте спливаючі вікна для друку чека");
+      return;
+    }
 
     const formatNumber = (num) => num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 
@@ -651,8 +679,8 @@ function App() {
         </head>
         <body>
             <div class="header">
-                <h2>НАКЛАДНА №${receipt.id}</h2>
-                <div>${new Date(receipt.created_at).toLocaleString('uk-UA')}</div>
+                <h2>НАКЛАДНА №${receipt.id}${receipt.receipt_number ? ` (№${escapeHtml(receipt.receipt_number)})` : ''}</h2>
+                <div>${escapeHtml(new Date(receipt.created_at).toLocaleString('uk-UA'))}</div>
             </div>
             <div class="line"></div>
             <table>
@@ -666,14 +694,14 @@ function App() {
                 <tr>
                     <td>${item.percentage}%</td>
                     <td>${item.coefficient}</td>
-                    <td>${item.weight.toFixed(2)} кг</td>
+                    <td>${Number(item.weight).toFixed(2)} кг</td>
                     <td>${formatNumber(item.sum)} грн</td>
                 </tr>
                 `).join('')}
             </table>
             <div class="line"></div>
             <div class="total">
-                Загальна вага: ${receipt.total_weight.toFixed(2)} кг<br>
+                Загальна вага: ${Number(receipt.total_weight).toFixed(2)} кг<br>
                 Всього: ${formatNumber(receipt.total_sum)} грн
             </div>
             <div class="footer">
@@ -1031,17 +1059,18 @@ function App() {
           </div>
           <button
             onClick={saveReceipt}
+            disabled={saving}
             style={{
               padding: '12px 30px',
-              background: '#007bff',
+              background: saving ? '#6c757d' : '#007bff',
               color: 'white',
               border: 'none',
               borderRadius: '6px',
-              cursor: 'pointer',
+              cursor: saving ? 'not-allowed' : 'pointer',
               fontSize: '1.1rem'
             }}
           >
-            💾 Зберегти чек
+            {saving ? '⏳ Збереження...' : '💾 Зберегти чек'}
           </button>
         </div>
       </div>
